@@ -173,7 +173,6 @@ async function main() {
     console.log('To build the native binary locally:');
     console.log('  1. Install Zig 0.16+: https://ziglang.org/download/');
     console.log('  2. Run: npm run build:native');
-    process.exitCode = 1;
   }
 
   await fixGlobalInstallBin();
@@ -188,6 +187,10 @@ async function fixGlobalInstallBin() {
 }
 
 async function fixUnixSymlink() {
+  if (!existsSync(binaryPath)) {
+    return;
+  }
+
   let npmBinDir;
   try {
     const prefix = execSync('npm prefix -g', { encoding: 'utf8' }).trim();
@@ -216,6 +219,10 @@ async function fixUnixSymlink() {
 }
 
 async function fixWindowsShims() {
+  if (!existsSync(binaryPath)) {
+    return;
+  }
+
   let npmBinDir;
   try {
     npmBinDir = execSync('npm prefix -g', { encoding: 'utf8' }).trim();

@@ -47,11 +47,12 @@ jobs:
             echo "should_release=false" >> "$GITHUB_OUTPUT"
 
             TAG="v$LOCAL_VERSION"
-            if gh release view "$TAG" &>/dev/null; then
-              echo "GitHub release $TAG exists"
+            REQUIRED_ASSETS=$(gh release view "$TAG" --json assets --jq '[.assets[].name] | map(select(. == "zero-native-darwin-arm64" or . == "CHECKSUMS.txt")) | length' 2>/dev/null || echo "0")
+            if [ "$REQUIRED_ASSETS" -ge 2 ]; then
+              echo "GitHub release $TAG exists with native assets"
               echo "needs_github_release=false" >> "$GITHUB_OUTPUT"
             else
-              echo "GitHub release $TAG is missing, will create it"
+              echo "GitHub release $TAG is missing native assets, will create/update it"
               echo "needs_github_release=true" >> "$GITHUB_OUTPUT"
             fi
           fi
@@ -60,10 +61,71 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
+  github-release:
+    name: Create GitHub Release
+    needs: check-release
+    if: needs.check-release.outputs.needs_github_release == 'true'
+    runs-on: macos-14
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Zig
+        uses: mlugg/setup-zig@v2
+        with:
+          version: 0.16.0
+
+      - name: Extract changelog entry
+        run: |
+          VERSION="${{ needs.check-release.outputs.version }}"
+          awk '/<!-- release:start -->/{found=1; next} /<!-- release:end -->/{found=0} found{print}' CHANGELOG.md > /tmp/release-notes.md
+
+          LINES=$(wc -l < /tmp/release-notes.md | tr -d ' ')
+          if [ "$LINES" -lt 2 ]; then
+            echo "Error: No release notes found between <!-- release:start --> and <!-- release:end --> markers in CHANGELOG.md"
+            exit 1
+          fi
+          echo "Extracted release notes for $VERSION ($LINES lines)"
+
+      - name: Build native release asset
+        run: |
+          zig build
+          mkdir -p /tmp/zero-native-release
+          cp zig-out/bin/zero-native /tmp/zero-native-release/zero-native-darwin-arm64
+          chmod 755 /tmp/zero-native-release/zero-native-darwin-arm64
+          (cd /tmp/zero-native-release && shasum -a 256 zero-native-darwin-arm64 > CHECKSUMS.txt)
+
+      - name: Create GitHub Release
+        run: |
+          VERSION="${{ needs.check-release.outputs.version }}"
+          TAG="v$VERSION"
+
+          if gh release view "$TAG" &>/dev/null; then
+            echo "Release $TAG already exists, updating assets"
+          else
+            echo "Creating release $TAG..."
+            gh release create "$TAG" \
+              --title "$TAG" \
+              --notes-file /tmp/release-notes.md
+          fi
+
+          gh release upload "$TAG" \
+            /tmp/zero-native-release/zero-native-darwin-arm64 \
+            /tmp/zero-native-release/CHECKSUMS.txt \
+            --clobber
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
   publish:
     name: Publish CLI to npm
-    needs: check-release
-    if: needs.check-release.outputs.should_release == 'true'
+    needs: [check-release, github-release]
+    if: >-
+      always()
+      && needs.check-release.outputs.should_release == 'true'
+      && (needs.github-release.result == 'success' || needs.github-release.result == 'skipped')
     runs-on: ubuntu-latest
     timeout-minutes: 10
     environment: Release
@@ -94,46 +156,3 @@ jobs:
             npm publish --access public
           fi
         working-directory: packages/zero-native
-
-  github-release:
-    name: Create GitHub Release
-    needs: [check-release, publish]
-    if: >-
-      always()
-      && needs.check-release.outputs.needs_github_release == 'true'
-      && (needs.publish.result == 'success' || needs.publish.result == 'skipped')
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    permissions:
-      contents: write
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Extract changelog entry
-        run: |
-          VERSION="${{ needs.check-release.outputs.version }}"
-          awk '/<!-- release:start -->/{found=1; next} /<!-- release:end -->/{found=0} found{print}' CHANGELOG.md > /tmp/release-notes.md
-
-          LINES=$(wc -l < /tmp/release-notes.md | tr -d ' ')
-          if [ "$LINES" -lt 2 ]; then
-            echo "Error: No release notes found between <!-- release:start --> and <!-- release:end --> markers in CHANGELOG.md"
-            exit 1
-          fi
-          echo "Extracted release notes for $VERSION ($LINES lines)"
-
-      - name: Create GitHub Release
-        run: |
-          VERSION="${{ needs.check-release.outputs.version }}"
-          TAG="v$VERSION"
-
-          if gh release view "$TAG" &>/dev/null; then
-            echo "Release $TAG already exists, skipping"
-          else
-            echo "Creating release $TAG..."
-            gh release create "$TAG" \
-              --title "$TAG" \
-              --notes-file /tmp/release-notes.md
-          fi
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

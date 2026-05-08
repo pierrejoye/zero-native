@@ -2,9 +2,21 @@
 
 All notable changes to zero-native will be documented in this file.
 
-## 0.1.1
+## 0.1.2
 
 <!-- release:start -->
+
+### Bug Fixes
+
+- **npm install fallback** - Do not fail package installation or point global shims at missing binaries when a native release asset is unavailable.
+- **Release asset ordering** - Upload the macOS arm64 native binary and `CHECKSUMS.txt` before publishing the npm package so postinstall downloads succeed immediately.
+
+### Contributors
+
+- @ctate
+<!-- release:end -->
+
+## 0.1.1
 
 ### Bug Fixes
 
@@ -21,7 +33,6 @@ All notable changes to zero-native will be documented in this file.
 ### Contributors
 
 - @ctate
-<!-- release:end -->
 
 ## 0.1.0
 
