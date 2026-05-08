@@ -74,5 +74,10 @@ jobs:
         run: npm --prefix packages/zero-native run scripts:check
 
       - name: Publish to npm
-        run: npm publish --provenance --access public
+        run: |
+          if [ "${{ github.event.repository.visibility }}" = "public" ]; then
+            npm publish --provenance --access public
+          else
+            npm publish --access public
+          fi
         working-directory: packages/zero-native

@@ -432,8 +432,33 @@ static gboolean on_close_request(GtkWindow *window, gpointer data) {
 static const char *zero_native_decision_uri(WebKitPolicyDecision *decision, WebKitPolicyDecisionType type) {
     if (type != WEBKIT_POLICY_DECISION_TYPE_NAVIGATION_ACTION) return NULL;
     WebKitNavigationPolicyDecision *navigation = WEBKIT_NAVIGATION_POLICY_DECISION(decision);
-    WebKitURIRequest *request = webkit_navigation_policy_decision_get_request(navigation);
+    WebKitNavigationAction *action = webkit_navigation_policy_decision_get_navigation_action(navigation);
+    WebKitURIRequest *request = action ? webkit_navigation_action_get_request(action) : NULL;
     return request ? webkit_uri_request_get_uri(request) : NULL;
+}
+
+#if GTK_CHECK_VERSION(4, 10, 0)
+static void zero_native_uri_launch_done(GObject *source_object, GAsyncResult *result, gpointer data) {
+    (void)data;
+    GtkUriLauncher *launcher = GTK_URI_LAUNCHER(source_object);
+    GError *error = NULL;
+    if (!gtk_uri_launcher_launch_finish(launcher, result, &error) && error) {
+        g_warning("failed to open external URI: %s", error->message);
+        g_error_free(error);
+    }
+    g_object_unref(launcher);
+}
+#endif
+
+static void zero_native_open_external_uri(GtkWindow *parent, const char *uri) {
+#if GTK_CHECK_VERSION(4, 10, 0)
+    GtkUriLauncher *launcher = gtk_uri_launcher_new(uri);
+    gtk_uri_launcher_launch(launcher, parent, NULL, zero_native_uri_launch_done, NULL);
+#else
+    G_GNUC_BEGIN_IGNORE_DEPRECATIONS
+    gtk_show_uri(parent, uri, GDK_CURRENT_TIME);
+    G_GNUC_END_IGNORE_DEPRECATIONS
+#endif
 }
 
 static gboolean on_decide_policy(WebKitWebView *web_view, WebKitPolicyDecision *decision, WebKitPolicyDecisionType type, gpointer data) {
@@ -455,7 +480,7 @@ static gboolean on_decide_policy(WebKitWebView *web_view, WebKitPolicyDecision *
     }
 
     if (host->external_link_action == 1 && zero_native_policy_list_matches(host->allowed_external_urls, host->allowed_external_urls_count, uri)) {
-        gtk_show_uri(win->gtk_window, uri, GDK_CURRENT_TIME);
+        zero_native_open_external_uri(win->gtk_window, uri);
         webkit_policy_decision_ignore(decision);
         return TRUE;
     }

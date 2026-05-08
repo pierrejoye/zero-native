@@ -232,24 +232,31 @@ pub fn build(b: *std.Build) void {
     webview_smoke_build.setCwd(b.path("examples/webview"));
     const webview_smoke_run = b.addSystemCommand(&.{
         "sh", "-c",
-        b.fmt(
-            \\set -eu
-            \\cd examples/webview
-            \\app="zig-out/bin/webview"
-            \\cli="{s}"
-            \\mkdir -p .zig-cache/zero-native-automation
-            \\rm -f .zig-cache/zero-native-automation/snapshot.txt .zig-cache/zero-native-automation/windows.txt .zig-cache/zero-native-automation/bridge-response.txt
-            \\"$app" > .zig-cache/zero-native-webview-smoke.log 2>&1 &
-            \\pid=$!
-            \\trap 'kill "$pid" >/dev/null 2>&1 || true; wait "$pid" >/dev/null 2>&1 || true' EXIT
-            \\snapshot="$("$cli" automate wait 2>&1)"
-            \\case "$snapshot" in *"ready=true"*) ;; *) echo "automation snapshot was not ready" >&2; exit 1 ;; esac
-            \\response="$("$cli" automate bridge '{{"id":"smoke","command":"native.ping","payload":{{"source":"smoke"}}}}' 2>&1)"
-            \\case "$response" in *'"ok":true'*) ;; *) echo "native.ping did not succeed: $response" >&2; exit 1 ;; esac
-            \\case "$response" in *'pong from Zig'*) ;; *) echo "native.ping response was unexpected: $response" >&2; exit 1 ;; esac
-            \\echo "webview smoke ok"
-        , .{"zig-out/bin/zero-native"}),
+        \\set -eu
+        \\cd examples/webview
+        \\app="zig-out/bin/webview"
+        \\cli="$1"
+        \\case "$cli" in /*) ;; *) cli="../../$cli" ;; esac
+        \\request='{"id":"smoke","command":"native.ping","payload":{"source":"smoke"}}'
+        \\response_file=".zig-cache/zero-native-automation/bridge-response.txt"
+        \\mkdir -p .zig-cache/zero-native-automation
+        \\rm -f .zig-cache/zero-native-automation/snapshot.txt .zig-cache/zero-native-automation/windows.txt .zig-cache/zero-native-automation/command.txt "$response_file"
+        \\printf 'bridge %s\n' "$request" > .zig-cache/zero-native-automation/command.txt
+        \\"$app" > .zig-cache/zero-native-webview-smoke.log 2>&1 &
+        \\pid=$!
+        \\trap 'kill "$pid" >/dev/null 2>&1 || true; wait "$pid" >/dev/null 2>&1 || true' EXIT
+        \\snapshot="$("$cli" automate wait 2>&1)"
+        \\case "$snapshot" in *"ready=true"*) ;; *) echo "automation snapshot was not ready" >&2; exit 1 ;; esac
+        \\attempts=0
+        \\while [ "$attempts" -lt 50 ] && [ ! -s "$response_file" ]; do attempts=$((attempts + 1)); sleep 0.1; done
+        \\response="$(cat "$response_file" 2>/dev/null || true)"
+        \\case "$response" in *'"ok":true'*) ;; *) echo "native.ping did not succeed: $response" >&2; exit 1 ;; esac
+        \\case "$response" in *'pong from Zig'*) ;; *) echo "native.ping response was unexpected: $response" >&2; exit 1 ;; esac
+        \\echo "webview smoke ok"
+        ,
+        "sh",
     });
+    webview_smoke_run.addFileArg(cli_exe.getEmittedBin());
     webview_smoke_run.step.dependOn(&webview_smoke_build.step);
     webview_smoke_run.step.dependOn(&cli_exe.step);
     webview_smoke_step.dependOn(&webview_smoke_run.step);
@@ -259,23 +266,30 @@ pub fn build(b: *std.Build) void {
     webview_cef_smoke_build.setCwd(b.path("examples/webview"));
     const webview_cef_smoke_run = b.addSystemCommand(&.{
         "sh", "-c",
-        b.fmt(
-            \\set -eu
-            \\cd examples/webview
-            \\app="zig-out/bin/webview"
-            \\cli="{s}"
-            \\mkdir -p .zig-cache/zero-native-automation
-            \\rm -f .zig-cache/zero-native-automation/snapshot.txt .zig-cache/zero-native-automation/windows.txt .zig-cache/zero-native-automation/bridge-response.txt
-            \\"$app" > .zig-cache/zero-native-webview-cef-smoke.log 2>&1 &
-            \\pid=$!
-            \\trap 'kill "$pid" >/dev/null 2>&1 || true; wait "$pid" >/dev/null 2>&1 || true' EXIT
-            \\snapshot="$("$cli" automate wait 2>&1)"
-            \\case "$snapshot" in *"ready=true"*) ;; *) echo "automation snapshot was not ready" >&2; exit 1 ;; esac
-            \\response="$("$cli" automate bridge '{{"id":"ping","command":"native.ping","payload":{{"source":"cef-smoke"}}}}' 2>&1)"
-            \\case "$response" in *'"ok":true'*'pong from Zig'*) ;; *) echo "native.ping response was unexpected: $response" >&2; exit 1 ;; esac
-            \\echo "cef webview smoke ok"
-        , .{"zig-out/bin/zero-native"}),
+        \\set -eu
+        \\cd examples/webview
+        \\app="zig-out/bin/webview"
+        \\cli="$1"
+        \\case "$cli" in /*) ;; *) cli="../../$cli" ;; esac
+        \\request='{"id":"ping","command":"native.ping","payload":{"source":"cef-smoke"}}'
+        \\response_file=".zig-cache/zero-native-automation/bridge-response.txt"
+        \\mkdir -p .zig-cache/zero-native-automation
+        \\rm -f .zig-cache/zero-native-automation/snapshot.txt .zig-cache/zero-native-automation/windows.txt .zig-cache/zero-native-automation/command.txt "$response_file"
+        \\printf 'bridge %s\n' "$request" > .zig-cache/zero-native-automation/command.txt
+        \\"$app" > .zig-cache/zero-native-webview-cef-smoke.log 2>&1 &
+        \\pid=$!
+        \\trap 'kill "$pid" >/dev/null 2>&1 || true; wait "$pid" >/dev/null 2>&1 || true' EXIT
+        \\snapshot="$("$cli" automate wait 2>&1)"
+        \\case "$snapshot" in *"ready=true"*) ;; *) echo "automation snapshot was not ready" >&2; exit 1 ;; esac
+        \\attempts=0
+        \\while [ "$attempts" -lt 50 ] && [ ! -s "$response_file" ]; do attempts=$((attempts + 1)); sleep 0.1; done
+        \\response="$(cat "$response_file" 2>/dev/null || true)"
+        \\case "$response" in *'"ok":true'*'pong from Zig'*) ;; *) echo "native.ping response was unexpected: $response" >&2; exit 1 ;; esac
+        \\echo "cef webview smoke ok"
+        ,
+        "sh",
     });
+    webview_cef_smoke_run.addFileArg(cli_exe.getEmittedBin());
     webview_cef_smoke_run.step.dependOn(&webview_cef_smoke_build.step);
     webview_cef_smoke_run.step.dependOn(&cli_exe.step);
     webview_cef_smoke_step.dependOn(&webview_cef_smoke_run.step);
