@@ -1343,6 +1343,8 @@ fn reactPackageJson(allocator: std.mem.Allocator, names: TemplateNames) ![]const
         \\    "react-dom": "^19.2.6"
         \\  },
         \\  "devDependencies": {
+        \\    "@types/react": "^19.2.14",
+        \\    "@types/react-dom": "^19.2.3",
         \\    "@vitejs/plugin-react": "^6.0.1",
         \\    "vite": "^8.0.11"
         \\  }
