@@ -87,7 +87,7 @@ The `zero-native` CLI provides project scaffolding, validation, packaging, and d
   <tbody>
     <tr>
       <td><code>--dir</code></td>
-      <td>CEF install directory. Defaults to <code>third_party/cef/macos</code>.</td>
+      <td>CEF install directory. Defaults to the host platform directory under <code>third_party/cef</code>.</td>
     </tr>
     <tr>
       <td><code>--version</code></td>
@@ -103,7 +103,7 @@ The `zero-native` CLI provides project scaffolding, validation, packaging, and d
     </tr>
     <tr>
       <td><code>--allow-build-tools</code></td>
-      <td>Allow the advanced official CEF path to invoke local build tools for <code>libcef_dll_wrapper.a</code>.</td>
+      <td>Allow the advanced official CEF path to invoke local build tools for <code>libcef_dll_wrapper</code>.</td>
     </tr>
     <tr>
       <td><code>--force</code></td>
@@ -150,7 +150,7 @@ Core maintainers who need to build CEF before a zero-native runtime release exis
     </tr>
     <tr>
       <td><code>--web-engine</code></td>
-      <td>Temporarily override <code>app.zon</code> with <code>system</code> or <code>chromium</code>; Chromium is currently wired for macOS packages</td>
+      <td>Temporarily override <code>app.zon</code> with <code>system</code> or <code>chromium</code></td>
     </tr>
     <tr>
       <td><code>--cef-dir</code></td>

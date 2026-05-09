@@ -6,6 +6,7 @@ const PlatformOption = enum {
     null,
     macos,
     linux,
+    windows,
 };
 
 const TraceOption = enum {
@@ -37,7 +38,7 @@ const SigningMode = enum {
 pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
-    const platform_option = b.option(PlatformOption, "platform", "Desktop backend: auto, null, macos, linux") orelse .auto;
+    const platform_option = b.option(PlatformOption, "platform", "Desktop backend: auto, null, macos, linux, windows") orelse .auto;
     const trace_option = b.option(TraceOption, "trace", "Trace output: off, events, runtime, all") orelse .events;
     _ = b.option(bool, "debug-overlay", "Enable debug overlay output") orelse false;
     _ = b.option(bool, "automation", "Enable zero-native automation artifacts") orelse false;
@@ -61,20 +62,23 @@ pub fn build(b: *std.Build) void {
         std.debug.panic("invalid app.zon web engine config: {s}", .{@errorName(err)});
     };
     const web_engine = buildWebEngineFromResolved(resolved_web_engine.engine);
-    const cef_dir = resolved_web_engine.cef_dir;
     const cef_auto_install = resolved_web_engine.cef_auto_install;
     const selected_platform: PlatformOption = switch (platform_option) {
-        .auto => if (target.result.os.tag == .macos) .macos else if (target.result.os.tag == .linux) .linux else .null,
+        .auto => if (target.result.os.tag == .macos) .macos else if (target.result.os.tag == .linux) .linux else if (target.result.os.tag == .windows) .windows else .null,
         else => platform_option,
     };
+    const cef_dir = cef_dir_override orelse defaultCefDir(selected_platform, resolved_web_engine.cef_dir);
     if (selected_platform == .macos and target.result.os.tag != .macos) {
         @panic("-Dplatform=macos requires a macOS target");
     }
     if (selected_platform == .linux and target.result.os.tag != .linux) {
         @panic("-Dplatform=linux requires a Linux target");
     }
-    if (web_engine == .chromium and selected_platform != .macos) {
-        @panic("-Dweb-engine=chromium is currently supported only with -Dplatform=macos; Linux uses WebKitGTK through -Dweb-engine=system");
+    if (selected_platform == .windows and target.result.os.tag != .windows) {
+        @panic("-Dplatform=windows requires a Windows target");
+    }
+    if (web_engine == .chromium and selected_platform == .null) {
+        @panic("-Dweb-engine=chromium requires -Dplatform=macos, linux, or windows");
     }
 
     const geometry_mod = module(b, target, optimize, "src/primitives/geometry/root.zig");
@@ -153,6 +157,7 @@ pub fn build(b: *std.Build) void {
         .null => "null",
         .macos => "macos",
         .linux => "linux",
+        .windows => "windows",
     };
 
     const test_step = b.step("test", "Run package and framework tests");
@@ -516,6 +521,15 @@ fn packageVersion(b: *std.Build) []const u8 {
     const value_start = start + marker.len;
     const value_end = std.mem.indexOfScalarPos(u8, bytes, value_start, '"') orelse return "0.1.0";
     return b.allocator.dupe(u8, bytes[value_start..value_end]) catch return "0.1.0";
+}
+
+fn defaultCefDir(platform: PlatformOption, configured: []const u8) []const u8 {
+    if (!std.mem.eql(u8, configured, web_engine_tool.default_cef_dir)) return configured;
+    return switch (platform) {
+        .linux => "third_party/cef/linux",
+        .windows => "third_party/cef/windows",
+        else => configured,
+    };
 }
 
 fn webEngineFromBuildOption(option: WebEngineOption) web_engine_tool.Engine {

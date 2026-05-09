@@ -139,6 +139,7 @@ fn buildZig(allocator: std.mem.Allocator, names: TemplateNames, framework_path: 
         \\    @"null",
         \\    macos,
         \\    linux,
+        \\    windows,
         \\};
         \\
         \\const TraceOption = enum {
@@ -170,7 +171,7 @@ fn buildZig(allocator: std.mem.Allocator, names: TemplateNames, framework_path: 
         \\pub fn build(b: *std.Build) void {
         \\    const target = b.standardTargetOptions(.{});
         \\    const optimize = b.standardOptimizeOption(.{});
-        \\    const platform_option = b.option(PlatformOption, "platform", "Desktop backend: auto, null, macos, linux") orelse .auto;
+        \\    const platform_option = b.option(PlatformOption, "platform", "Desktop backend: auto, null, macos, linux, windows") orelse .auto;
         \\    const trace_option = b.option(TraceOption, "trace", "Trace output: off, events, runtime, all") orelse .events;
         \\    const debug_overlay = b.option(bool, "debug-overlay", "Enable debug overlay output") orelse false;
         \\    const automation_enabled = b.option(bool, "automation", "Enable zero-native automation artifacts") orelse false;
@@ -182,7 +183,7 @@ fn buildZig(allocator: std.mem.Allocator, names: TemplateNames, framework_path: 
         \\    const zero_native_path = b.option([]const u8, "zero-native-path", "Path to the zero-native framework checkout") orelse default_zero_native_path;
         \\    const optimize_name = @tagName(optimize);
         \\    const selected_platform: PlatformOption = switch (platform_option) {
-        \\        .auto => if (target.result.os.tag == .macos) .macos else if (target.result.os.tag == .linux) .linux else .@"null",
+        \\        .auto => if (target.result.os.tag == .macos) .macos else if (target.result.os.tag == .linux) .linux else if (target.result.os.tag == .windows) .windows else .@"null",
         \\        else => platform_option,
         \\    };
         \\    if (selected_platform == .macos and target.result.os.tag != .macos) {
@@ -191,12 +192,15 @@ fn buildZig(allocator: std.mem.Allocator, names: TemplateNames, framework_path: 
         \\    if (selected_platform == .linux and target.result.os.tag != .linux) {
         \\        @panic("-Dplatform=linux requires a Linux target");
         \\    }
+        \\    if (selected_platform == .windows and target.result.os.tag != .windows) {
+        \\        @panic("-Dplatform=windows requires a Windows target");
+        \\    }
         \\    const app_web_engine = appWebEngineConfig();
         \\    const web_engine = web_engine_override orelse app_web_engine.web_engine;
-        \\    const cef_dir = cef_dir_override orelse app_web_engine.cef_dir;
+        \\    const cef_dir = cef_dir_override orelse defaultCefDir(selected_platform, app_web_engine.cef_dir);
         \\    const cef_auto_install = cef_auto_install_override orelse app_web_engine.cef_auto_install;
-        \\    if (web_engine == .chromium and selected_platform != .macos) {
-        \\        @panic("-Dweb-engine=chromium is currently supported only with -Dplatform=macos");
+        \\    if (web_engine == .chromium and selected_platform == .@"null") {
+        \\        @panic("-Dweb-engine=chromium requires -Dplatform=macos, linux, or windows");
         \\    }
         \\
         \\    const zero_native_mod = zeroNativeModule(b, target, optimize, zero_native_path);
@@ -206,6 +210,7 @@ fn buildZig(allocator: std.mem.Allocator, names: TemplateNames, framework_path: 
         \\        .@"null" => "null",
         \\        .macos => "macos",
         \\        .linux => "linux",
+        \\        .windows => "windows",
         \\    });
         \\    options.addOption([]const u8, "trace", @tagName(trace_option));
         \\    options.addOption([]const u8, "web_engine", @tagName(web_engine));
@@ -225,7 +230,7 @@ fn buildZig(allocator: std.mem.Allocator, names: TemplateNames, framework_path: 
         \\        .name = app_exe_name,
         \\        .root_module = app_mod,
         \\    });
-        \\    linkPlatform(b, app_mod, exe, selected_platform, web_engine, zero_native_path, cef_dir, cef_auto_install);
+        \\    linkPlatform(b, target, app_mod, exe, selected_platform, web_engine, zero_native_path, cef_dir, cef_auto_install);
         \\    b.installArtifact(exe);
         \\
         \\    const frontend_install = b.addSystemCommand(&.{ "npm", "install", "--prefix", "frontend" });
@@ -239,7 +244,7 @@ fn buildZig(allocator: std.mem.Allocator, names: TemplateNames, framework_path: 
         \\
         \\    const run = b.addRunArtifact(exe);
         \\    run.step.dependOn(&frontend_build.step);
-        \\    addCefRuntimeRunFiles(b, run, exe, web_engine, cef_dir);
+        \\    addCefRuntimeRunFiles(b, target, run, exe, web_engine, cef_dir);
         \\    const run_step = b.step("run", "Run the app");
         \\    run_step.dependOn(&run.step);
         \\
@@ -326,7 +331,7 @@ fn buildZig(allocator: std.mem.Allocator, names: TemplateNames, framework_path: 
         \\    });
         \\}
         \\
-        \\fn linkPlatform(b: *std.Build, app_mod: *std.Build.Module, exe: *std.Build.Step.Compile, platform: PlatformOption, web_engine: WebEngineOption, zero_native_path: []const u8, cef_dir: []const u8, cef_auto_install: bool) void {
+        \\fn linkPlatform(b: *std.Build, target: std.Build.ResolvedTarget, app_mod: *std.Build.Module, exe: *std.Build.Step.Compile, platform: PlatformOption, web_engine: WebEngineOption, zero_native_path: []const u8, cef_dir: []const u8, cef_auto_install: bool) void {
         \\    if (platform == .macos) {
         \\        switch (web_engine) {
         \\            .system => {
@@ -334,7 +339,7 @@ fn buildZig(allocator: std.mem.Allocator, names: TemplateNames, framework_path: 
         \\                app_mod.linkFramework("WebKit", .{});
         \\            },
         \\            .chromium => {
-        \\                const cef_check = addCefCheck(b, cef_dir);
+        \\                const cef_check = addCefCheck(b, target, cef_dir);
         \\                if (cef_auto_install) {
         \\                    const cef_auto = b.addSystemCommand(&.{ "zero-native", "cef", "install", "--dir", cef_dir });
         \\                    cef_check.step.dependOn(&cef_auto.step);
@@ -355,15 +360,59 @@ fn buildZig(allocator: std.mem.Allocator, names: TemplateNames, framework_path: 
         \\        app_mod.linkSystemLibrary("c", .{});
         \\        if (web_engine == .chromium) app_mod.linkSystemLibrary("c++", .{});
         \\    } else if (platform == .linux) {
-        \\        app_mod.addCSourceFile(.{ .file = zeroNativePath(b, zero_native_path, "src/platform/linux/gtk_host.c"), .flags = &.{} });
-        \\        app_mod.linkSystemLibrary("gtk4", .{});
-        \\        app_mod.linkSystemLibrary("webkitgtk-6.0", .{});
+        \\        switch (web_engine) {
+        \\            .system => {
+        \\                app_mod.addCSourceFile(.{ .file = zeroNativePath(b, zero_native_path, "src/platform/linux/gtk_host.c"), .flags = &.{} });
+        \\                app_mod.linkSystemLibrary("gtk4", .{});
+        \\                app_mod.linkSystemLibrary("webkitgtk-6.0", .{});
+        \\            },
+        \\            .chromium => {
+        \\                const cef_check = addCefCheck(b, target, cef_dir);
+        \\                if (cef_auto_install) {
+        \\                    const cef_auto = b.addSystemCommand(&.{ "zero-native", "cef", "install", "--dir", cef_dir });
+        \\                    cef_check.step.dependOn(&cef_auto.step);
+        \\                }
+        \\                exe.step.dependOn(&cef_check.step);
+        \\                const include_arg = b.fmt("-I{s}", .{cef_dir});
+        \\                const define_arg = b.fmt("-DZERO_NATIVE_CEF_DIR=\"{s}\"", .{cef_dir});
+        \\                app_mod.addCSourceFile(.{ .file = zeroNativePath(b, zero_native_path, "src/platform/linux/cef_host.cpp"), .flags = &.{ "-std=c++17", include_arg, define_arg } });
+        \\                app_mod.addObjectFile(b.path(b.fmt("{s}/libcef_dll_wrapper/libcef_dll_wrapper.a", .{cef_dir})));
+        \\                app_mod.addLibraryPath(b.path(b.fmt("{s}/Release", .{cef_dir})));
+        \\                app_mod.linkSystemLibrary("cef", .{});
+        \\                app_mod.addRPath(.{ .cwd_relative = "$ORIGIN" });
+        \\            },
+        \\        }
         \\        app_mod.linkSystemLibrary("c", .{});
+        \\        if (web_engine == .chromium) app_mod.linkSystemLibrary("stdc++", .{});
+        \\    } else if (platform == .windows) {
+        \\        switch (web_engine) {
+        \\            .system => app_mod.addCSourceFile(.{ .file = zeroNativePath(b, zero_native_path, "src/platform/windows/webview2_host.cpp"), .flags = &.{ "-std=c++17" } }),
+        \\            .chromium => {
+        \\                const cef_check = addCefCheck(b, target, cef_dir);
+        \\                if (cef_auto_install) {
+        \\                    const cef_auto = b.addSystemCommand(&.{ "zero-native", "cef", "install", "--dir", cef_dir });
+        \\                    cef_check.step.dependOn(&cef_auto.step);
+        \\                }
+        \\                exe.step.dependOn(&cef_check.step);
+        \\                const include_arg = b.fmt("-I{s}", .{cef_dir});
+        \\                const define_arg = b.fmt("-DZERO_NATIVE_CEF_DIR=\"{s}\"", .{cef_dir});
+        \\                app_mod.addCSourceFile(.{ .file = zeroNativePath(b, zero_native_path, "src/platform/windows/cef_host.cpp"), .flags = &.{ "-std=c++17", include_arg, define_arg } });
+        \\                app_mod.addObjectFile(b.path(b.fmt("{s}/libcef_dll_wrapper/libcef_dll_wrapper.lib", .{cef_dir})));
+        \\                app_mod.addLibraryPath(b.path(b.fmt("{s}/Release", .{cef_dir})));
+        \\            },
+        \\        }
+        \\        app_mod.linkSystemLibrary("c", .{});
+        \\        app_mod.linkSystemLibrary("c++", .{});
+        \\        app_mod.linkSystemLibrary("user32", .{});
+        \\        app_mod.linkSystemLibrary("ole32", .{});
+        \\        app_mod.linkSystemLibrary("shell32", .{});
+        \\        if (web_engine == .chromium) app_mod.linkSystemLibrary("libcef", .{});
         \\    }
         \\}
         \\
-        \\fn addCefRuntimeRunFiles(b: *std.Build, run: *std.Build.Step.Run, exe: *std.Build.Step.Compile, web_engine: WebEngineOption, cef_dir: []const u8) void {
+        \\fn addCefRuntimeRunFiles(b: *std.Build, target: std.Build.ResolvedTarget, run: *std.Build.Step.Run, exe: *std.Build.Step.Compile, web_engine: WebEngineOption, cef_dir: []const u8) void {
         \\    if (web_engine != .chromium) return;
+        \\    if (target.result.os.tag != .macos) return;
         \\    const copy = b.addSystemCommand(&.{ "sh", "-c", b.fmt(
         \\        \\set -e
         \\        \\exe="$0"
@@ -382,8 +431,9 @@ fn buildZig(allocator: std.mem.Allocator, names: TemplateNames, framework_path: 
         \\    run.step.dependOn(&copy.step);
         \\}
         \\
-        \\fn addCefCheck(b: *std.Build, cef_dir: []const u8) *std.Build.Step.Run {
-        \\    const script = b.fmt(
+        \\fn addCefCheck(b: *std.Build, target: std.Build.ResolvedTarget, cef_dir: []const u8) *std.Build.Step.Run {
+        \\    const script = switch (target.result.os.tag) {
+        \\        .macos => b.fmt(
         \\        \\test -f "{s}/include/cef_app.h" &&
         \\        \\test -d "{s}/Release/Chromium Embedded Framework.framework" &&
         \\        \\test -f "{s}/libcef_dll_wrapper/libcef_dll_wrapper.a" || {{
@@ -397,7 +447,27 @@ fn buildZig(allocator: std.mem.Allocator, names: TemplateNames, framework_path: 
         \\        \\  echo "Pass -Dcef-dir=/path/to/cef if your bundle lives elsewhere." >&2
         \\        \\  exit 1
         \\        \\}}
-        \\    , .{ cef_dir, cef_dir, cef_dir, cef_dir, cef_dir, cef_dir, cef_dir });
+        \\        , .{ cef_dir, cef_dir, cef_dir, cef_dir, cef_dir, cef_dir, cef_dir }),
+        \\        .linux => b.fmt(
+        \\        \\test -f "{s}/include/cef_app.h" &&
+        \\        \\test -f "{s}/Release/libcef.so" &&
+        \\        \\test -f "{s}/libcef_dll_wrapper/libcef_dll_wrapper.a" || {{
+        \\        \\  echo "missing CEF dependency for -Dweb-engine=chromium" >&2
+        \\        \\  echo "Fix with: zero-native cef install --dir {s}" >&2
+        \\        \\  exit 1
+        \\        \\}}
+        \\        , .{ cef_dir, cef_dir, cef_dir, cef_dir }),
+        \\        .windows => b.fmt(
+        \\        \\test -f "{s}/include/cef_app.h" &&
+        \\        \\test -f "{s}/Release/libcef.dll" &&
+        \\        \\test -f "{s}/libcef_dll_wrapper/libcef_dll_wrapper.lib" || {{
+        \\        \\  echo "missing CEF dependency for -Dweb-engine=chromium" >&2
+        \\        \\  echo "Fix with: zero-native cef install --dir {s}" >&2
+        \\        \\  exit 1
+        \\        \\}}
+        \\        , .{ cef_dir, cef_dir, cef_dir, cef_dir }),
+        \\        else => "echo unsupported CEF target >&2; exit 1",
+        \\    };
         \\    return b.addSystemCommand(&.{ "sh", "-c", script });
         \\}
         \\
@@ -413,6 +483,15 @@ fn buildZig(allocator: std.mem.Allocator, names: TemplateNames, framework_path: 
         \\    cef_dir: []const u8 = "third_party/cef/macos",
         \\    cef_auto_install: bool = false,
         \\};
+        \\
+        \\fn defaultCefDir(platform: PlatformOption, configured: []const u8) []const u8 {
+        \\    if (!std.mem.eql(u8, configured, "third_party/cef/macos")) return configured;
+        \\    return switch (platform) {
+        \\        .linux => "third_party/cef/linux",
+        \\        .windows => "third_party/cef/windows",
+        \\        else => configured,
+        \\    };
+        \\}
         \\
         \\fn appWebEngineConfig() AppWebEngineConfig {
         \\    const source = @embedFile("app.zon");
@@ -641,6 +720,8 @@ fn runnerZig() []const u8 {
     \\        try runMacos(app, options, init);
     \\    } else if (comptime std.mem.eql(u8, build_options.platform, "linux")) {
     \\        try runLinux(app, options, init);
+        \\    } else if (comptime std.mem.eql(u8, build_options.platform, "windows")) {
+        \\        try runWindows(app, options, init);
     \\    } else {
     \\        try runNull(app, options, init);
     \\    }
@@ -747,6 +828,40 @@ fn runnerZig() []const u8 {
     \\    try runtime.run(app);
     \\}
     \\
+        \\fn runWindows(app: zero_native.App, options: RunOptions, init: std.process.Init) !void {
+        \\    var buffers: StateBuffers = undefined;
+        \\    var app_info = options.appInfo();
+        \\    const store = prepareStateStore(init.io, init.environ_map, &app_info, &buffers);
+        \\    var windows_platform = try zero_native.platform.windows.WindowsPlatform.initWithOptions(zero_native.geometry.SizeF.init(720, 480), webEngine(), app_info);
+        \\    defer windows_platform.deinit();
+        \\    var trace_sink = StdoutTraceSink{};
+        \\    var log_buffers: zero_native.debug.LogPathBuffers = .{};
+        \\    const log_setup = zero_native.debug.setupLogging(init.io, init.environ_map, app_info.bundle_id, &log_buffers) catch null;
+        \\    if (log_setup) |setup| zero_native.debug.installPanicCapture(init.io, setup.paths);
+        \\    var file_trace_sink: zero_native.debug.FileTraceSink = undefined;
+        \\    var fanout_sinks: [2]zero_native.trace.Sink = undefined;
+        \\    var fanout_sink: zero_native.debug.FanoutTraceSink = undefined;
+        \\    var runtime_trace_sink = trace_sink.sink();
+        \\    if (log_setup) |setup| {
+        \\        file_trace_sink = zero_native.debug.FileTraceSink.init(init.io, setup.paths.log_dir, setup.paths.log_file, setup.format);
+        \\        fanout_sinks = .{ trace_sink.sink(), file_trace_sink.sink() };
+        \\        fanout_sink = .{ .sinks = &fanout_sinks };
+        \\        runtime_trace_sink = fanout_sink.sink();
+        \\    }
+        \\    var runtime = zero_native.Runtime.init(.{
+        \\        .platform = windows_platform.platform(),
+        \\        .trace_sink = runtime_trace_sink,
+        \\        .log_path = if (log_setup) |setup| setup.paths.log_file else null,
+        \\        .bridge = options.bridge,
+        \\        .builtin_bridge = options.builtin_bridge,
+        \\        .security = options.security,
+        \\        .automation = if (build_options.automation) zero_native.automation.Server.init(init.io, ".zig-cache/zero-native-automation", app_info.resolvedWindowTitle()) else null,
+        \\        .window_state_store = store,
+        \\    });
+        \\
+        \\    try runtime.run(app);
+        \\}
+        \\
     \\fn shouldTrace(record: zero_native.trace.Record) bool {
     \\    if (comptime std.mem.eql(u8, build_options.trace, "off")) return false;
     \\    if (comptime std.mem.eql(u8, build_options.trace, "all")) return true;
@@ -1616,10 +1731,10 @@ fn readme(allocator: std.mem.Allocator, names: TemplateNames, framework_path: []
         \\zig build run -Dplatform=macos -Dweb-engine=chromium -Dcef-auto-install=true
         \\```
         \\
-        \\Use `-Dcef-dir=/path/to/cef` when you keep CEF outside `third_party/cef/macos`.
+        \\Use `-Dcef-dir=/path/to/cef` when you keep CEF outside the platform default under `third_party/cef`.
         \\
         \\```sh
-        \\zero-native doctor --web-engine chromium --cef-dir third_party/cef/macos
+        \\zero-native doctor --web-engine chromium
         \\```
         \\
         \\Diagnostics:

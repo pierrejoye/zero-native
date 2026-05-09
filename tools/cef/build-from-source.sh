@@ -3,13 +3,13 @@ set -euo pipefail
 
 usage() {
   cat >&2 <<'EOF'
-usage: tools/cef/build-from-source.sh --platform macosarm64|macosx64 [options]
+usage: tools/cef/build-from-source.sh --platform macosarm64|macosx64|linux64|linuxarm64|windows64|windowsarm64 [options]
 
 Build CEF from source for zero-native maintainers, assemble the expected runtime
 layout, and package a zero-native-cef release archive.
 
 options:
-  --platform name          Required. macosarm64 or macosx64.
+  --platform name          Required. CEF platform slug.
   --work-dir path          Working directory for CEF/depot_tools checkout.
                            Default: .zig-cache/zero-native-cef-source
   --depot-tools-dir path   Existing depot_tools checkout. If omitted, the
@@ -83,8 +83,12 @@ done
 case "$platform" in
   macosarm64) arch_flag="--arm64-build" ;;
   macosx64) arch_flag="--x64-build" ;;
+  linuxarm64) arch_flag="--arm64-build" ;;
+  linux64) arch_flag="--x64-build" ;;
+  windowsarm64) arch_flag="--arm64-build" ;;
+  windows64) arch_flag="--x64-build" ;;
   *)
-    echo "--platform must be macosarm64 or macosx64" >&2
+    echo "--platform must be macosarm64, macosx64, linux64, linuxarm64, windows64, or windowsarm64" >&2
     exit 2
     ;;
 esac
@@ -92,7 +96,9 @@ esac
 command -v python3 >/dev/null || { echo "python3 is required" >&2; exit 1; }
 command -v git >/dev/null || { echo "git is required" >&2; exit 1; }
 command -v cmake >/dev/null || { echo "cmake is required" >&2; exit 1; }
-command -v xcodebuild >/dev/null || { echo "Xcode Command Line Tools are required" >&2; exit 1; }
+case "$platform" in
+  macos*) command -v xcodebuild >/dev/null || { echo "Xcode Command Line Tools are required" >&2; exit 1; } ;;
+esac
 
 mkdir -p "$work_dir" "$output_dir"
 
@@ -156,8 +162,12 @@ cef_root="$(find "$extract_dir" -mindepth 1 -maxdepth 1 -type d | head -n 1)"
 cmake -S "$cef_root" -B "$cef_root/build/libcef_dll_wrapper"
 cmake --build "$cef_root/build/libcef_dll_wrapper" --target libcef_dll_wrapper --config Release
 mkdir -p "$cef_root/libcef_dll_wrapper"
-find "$cef_root/build/libcef_dll_wrapper" -name libcef_dll_wrapper.a -print -quit \
-  | xargs -I{} cp "{}" "$cef_root/libcef_dll_wrapper/libcef_dll_wrapper.a"
+case "$platform" in
+  windows*) wrapper="libcef_dll_wrapper.lib" ;;
+  *) wrapper="libcef_dll_wrapper.a" ;;
+esac
+find "$cef_root/build/libcef_dll_wrapper" -name "$wrapper" -print -quit \
+  | xargs -I{} cp "{}" "$cef_root/libcef_dll_wrapper/$wrapper"
 
 if [[ ! -x "$zero_native_bin" ]]; then
   zig build

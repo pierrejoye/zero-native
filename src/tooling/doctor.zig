@@ -171,10 +171,12 @@ pub fn reportForCurrentHostWithProbe(
             .checks = buffers.checks[0..buffers.check_count],
         };
     };
-    if (target.os != .macos) {
-        try buffers.add("webview-chromium", .unsupported, "Chromium/CEF backend is currently wired for macOS hosts only", .{});
+    const cef_platform = cef.Platform.current() catch null;
+    if (cef_platform == null) {
+        try buffers.add("webview-chromium", .unsupported, "Chromium/CEF backend is not wired for this host", .{});
     } else if (resolved_engine.engine == .chromium) {
-        try addCefLayoutCheck(buffers, io, probe, resolved_engine.cef_dir);
+        const cef_dir = if (resolved_engine.cef_dir.len == 0) cef_platform.?.defaultDir() else resolved_engine.cef_dir;
+        try addCefLayoutCheck(buffers, io, probe, cef_platform.?, cef_dir);
     } else {
         try buffers.add("webview-chromium", .available, "Chromium backend is available; configure app.zon or pass --web-engine chromium to check CEF", .{});
     }
@@ -256,8 +258,8 @@ fn addPathCheck(
     }
 }
 
-fn addCefLayoutCheck(buffers: *ReportBuffers, io: std.Io, probe: Probe, cef_dir: []const u8) !void {
-    for (cef.macos_required_entries) |entry| {
+fn addCefLayoutCheck(buffers: *ReportBuffers, io: std.Io, probe: Probe, platform: cef.Platform, cef_dir: []const u8) !void {
+    for (platform.requiredEntries()) |entry| {
         var path_buffer: [512]u8 = undefined;
         var fba = std.heap.FixedBufferAllocator.init(&path_buffer);
         const path = std.fs.path.join(fba.allocator(), &.{ cef_dir, entry.path }) catch {

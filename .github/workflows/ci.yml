@@ -44,6 +44,26 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y libgtk-4-dev libwebkitgtk-6.0-dev
       - run: zig build test-webview-system-link -Dplatform=linux
 
+  windows-webview:
+    name: Windows WebView
+    runs-on: windows-2022
+    steps:
+      - uses: actions/checkout@v4
+      - uses: mlugg/setup-zig@v2
+        with:
+          version: 0.16.0
+      - run: zig build test-webview-system-link -Dplatform=windows
+
+  cef-platform-tooling:
+    name: CEF Platform Tooling
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: mlugg/setup-zig@v2
+        with:
+          version: 0.16.0
+      - run: zig build test-tooling
+
   npm-package:
     name: npm Package
     runs-on: ubuntu-latest

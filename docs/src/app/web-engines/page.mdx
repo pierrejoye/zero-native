@@ -47,7 +47,7 @@ Set the app engine once:
 
 ```zig
 .web_engine = "chromium",
-.cef = .{ .dir = "third_party/cef/macos", .auto_install = false },
+.cef = .{ .dir = "third_party/cef/<platform>", .auto_install = false },
 ```
 
 ```bash
@@ -57,7 +57,7 @@ zig build run
 
 CEF mode is first-class on macOS. It uses the same zero-native runtime APIs as WKWebView, but bundles Chromium for rendering consistency and a predictable web platform.
 
-Chromium is currently wired for macOS only. Linux continues to use WebKitGTK, and Windows support is in progress. Treat the beta as macOS-focused when choosing Chromium.
+Chromium is available through CEF on macOS, Linux, and Windows. Linux can still use WebKitGTK with `system`, and Windows can use the native system host with `system`.
 
 ### Setup
 
@@ -68,7 +68,7 @@ zero-native cef install
 zero-native doctor --manifest app.zon
 ```
 
-`zero-native cef install` downloads zero-native's prepared macOS CEF runtime from GitHub Releases, verifies it, and installs a complete layout into `third_party/cef/macos`. The prepared runtime already includes `libcef_dll_wrapper.a`, so app developers do not need CMake or Chromium build knowledge.
+`zero-native cef install` downloads zero-native's prepared CEF runtime for the current platform from GitHub Releases, verifies it, and installs a complete layout into `third_party/cef/macos`, `third_party/cef/linux`, or `third_party/cef/windows`. The prepared runtime already includes `libcef_dll_wrapper`, so app developers do not need CMake or Chromium build knowledge.
 
 The default install uses zero-native's pinned tested CEF version. Pin that version in your app CI or setup docs with `zero-native cef install --version <version>`, rerun the install when you intentionally update Chromium, then rebuild and repackage the app. A packaged Chromium app must bundle the same CEF layout the binary was linked against; mismatches usually show up as launch failures or missing framework/resource errors.
 
@@ -78,7 +78,7 @@ You can also opt into one-command local setup from the build:
 zig build run
 ```
 
-Set `.cef = .{ .dir = "third_party/cef/macos", .auto_install = true }` in `app.zon` to allow the build/package flow to install the prepared runtime automatically. Manual CEF layouts are still supported with `-Dcef-dir=/path/to/cef` or `.cef.dir`. Advanced users can also install directly from official CEF archives with `zero-native cef install --source official --allow-build-tools`. The expected layout is documented in `third_party/cef/README.md`.
+Set `.cef = .{ .dir = "third_party/cef/<platform>", .auto_install = true }` in `app.zon` to allow the build/package flow to install the prepared runtime automatically. Manual CEF layouts are still supported with `-Dcef-dir=/path/to/cef` or `.cef.dir`. Advanced users can also install directly from official CEF archives with `zero-native cef install --source official --allow-build-tools`. The expected layout is documented in `third_party/cef/README.md`.
 
 Core maintainers can build CEF from source with `tools/cef/build-from-source.sh` when preparing the first runtime release for a version or testing a new CEF branch before publishing it.
 
@@ -171,7 +171,7 @@ The Chromium smoke step requires a local CEF layout or `-Dcef-auto-install=true`
 // or, on supported platforms:
 .web_engine = "chromium",
 .cef = .{
-  .dir = "third_party/cef/macos",
+  .dir = "third_party/cef/<platform>",
   .auto_install = true,
 },
 ```

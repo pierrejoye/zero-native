@@ -35,6 +35,14 @@ jobs:
             runner: macos-14
           - platform: macosx64
             runner: macos-13
+          - platform: linux64
+            runner: ubuntu-latest
+          - platform: linuxarm64
+            runner: ubuntu-24.04-arm
+          - platform: windows64
+            runner: windows-2022
+          - platform: windowsarm64
+            runner: windows-11-arm
 
     steps:
       - uses: actions/checkout@v4
@@ -69,13 +77,20 @@ jobs:
           cmake -S "$CEF_ROOT" -B "$CEF_ROOT/build/libcef_dll_wrapper"
           cmake --build "$CEF_ROOT/build/libcef_dll_wrapper" --target libcef_dll_wrapper --config Release
           mkdir -p "$CEF_ROOT/libcef_dll_wrapper"
-          find "$CEF_ROOT/build/libcef_dll_wrapper" -name libcef_dll_wrapper.a -print -quit | xargs -I{} cp "{}" "$CEF_ROOT/libcef_dll_wrapper/libcef_dll_wrapper.a"
+          case "${{ matrix.platform }}" in
+            windows*) wrapper="libcef_dll_wrapper.lib" ;;
+            *) wrapper="libcef_dll_wrapper.a" ;;
+          esac
+          find "$CEF_ROOT/build/libcef_dll_wrapper" -name "$wrapper" -print -quit | xargs -I{} cp "{}" "$CEF_ROOT/libcef_dll_wrapper/$wrapper"
 
       - name: Prepare zero-native runtime archive
         if: ${{ inputs.source == 'official' }}
+        shell: bash
         run: |
           zig build
-          zig-out/bin/zero-native cef prepare-release --dir "$CEF_ROOT" --output zig-out/cef --version "${{ inputs.cef_version }}"
+          cli="zig-out/bin/zero-native"
+          if [[ "${{ runner.os }}" == "Windows" ]]; then cli="zig-out/bin/zero-native.exe"; fi
+          "$cli" cef prepare-release --dir "$CEF_ROOT" --output zig-out/cef --version "${{ inputs.cef_version }}"
 
       - name: Build CEF from source and prepare runtime
         if: ${{ inputs.source == 'source' }}

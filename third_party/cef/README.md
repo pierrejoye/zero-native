@@ -2,7 +2,13 @@
 
 Chromium mode uses CEF as the bundled engine backend. zero-native does not vendor CEF binaries in git.
 
-CEF is currently wired for macOS builds. Linux uses the system WebKitGTK backend until a Linux CEF host is added.
+CEF runtime archives are platform-specific. The default install directory is selected from the host platform:
+
+```text
+macOS:   third_party/cef/macos
+Linux:   third_party/cef/linux
+Windows: third_party/cef/windows
+```
 
 Install the default macOS CEF runtime with:
 
@@ -12,7 +18,7 @@ zero-native cef install
 
 The default installer downloads zero-native's prepared runtime from GitHub Releases. It already includes `libcef_dll_wrapper.a`, so app developers do not need CMake.
 
-Expected macOS layout:
+Expected layouts:
 
 ```text
 third_party/cef/macos/
@@ -20,6 +26,19 @@ third_party/cef/macos/
   Release/Chromium Embedded Framework.framework/
   Resources/
   libcef_dll_wrapper/libcef_dll_wrapper.a
+
+third_party/cef/linux/
+  include/cef_app.h
+  Release/libcef.so
+  Resources/
+  locales/
+  libcef_dll_wrapper/libcef_dll_wrapper.a
+
+third_party/cef/windows/
+  include/cef_app.h
+  Release/libcef.dll
+  Resources/
+  libcef_dll_wrapper/libcef_dll_wrapper.lib
 ```
 
 Use a custom location with:
@@ -41,7 +60,7 @@ Core maintainers can build CEF itself from source before a prepared zero-native 
 tools/cef/build-from-source.sh --platform macosarm64 --cef-branch <branch> --output zig-out/cef
 ```
 
-That script uses CEF's `automate-git.py`, `depot_tools`, CMake, and Xcode Command Line Tools to produce the same `zero-native-cef-<version>-<platform>.tar.gz` asset uploaded by the CEF runtime release workflow. This is a maintainer path only; app developers should use `zero-native cef install`.
+That script uses CEF's `automate-git.py`, `depot_tools`, CMake, and the platform compiler toolchain to produce the same `zero-native-cef-<version>-<platform>.tar.gz` asset uploaded by the CEF runtime release workflow. This is a maintainer path only; app developers should use `zero-native cef install`.
 
 Verify the layout before building with:
 

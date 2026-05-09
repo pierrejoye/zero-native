@@ -48,7 +48,7 @@ The WebView is treated as untrusted by default. Native commands, permissions, na
 
 ## Status
 
-zero-native is pre-release. The current beta focus is macOS desktop apps, with Linux system WebView support available and Windows work in progress. Chromium/CEF support is currently macOS-focused.
+zero-native is pre-release. Desktop support now covers macOS, Linux, and Windows build paths, with Chromium/CEF distributed as platform-specific runtimes.
 
 ## Core Concepts
 

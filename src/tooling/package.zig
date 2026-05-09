@@ -79,7 +79,6 @@ pub fn artifactName(buffer: []u8, metadata: manifest_tool.Metadata, target: Pack
 }
 
 pub fn createPackage(allocator: std.mem.Allocator, io: std.Io, options: PackageOptions) !PackageStats {
-    if (options.web_engine == .chromium and options.target != .macos) return error.UnsupportedWebEngine;
     var stats = switch (options.target) {
         .macos => try createMacosApp(allocator, io, options),
         .windows, .linux => try createDesktopArtifact(allocator, io, options),
@@ -233,6 +232,11 @@ fn createDesktopArtifact(allocator: std.mem.Allocator, io: std.Io, options: Pack
         if (options.metadata.icons.len > 0) {
             copyFileToDir(allocator, io, dir, options.metadata.icons[0], "share/icons/app-icon.png") catch {};
         }
+    }
+    if (options.web_engine == .chromium) {
+        const cef_platform = cefPlatformForTarget(options.target) orelse return error.UnsupportedWebEngine;
+        try cef.ensureLayoutFor(io, cef_platform, options.cef_dir);
+        try copyDesktopCefRuntime(allocator, io, dir, options.target, options.cef_dir);
     }
     try writeReport(allocator, dir, io, "package-manifest.zon", options, executable_name, bundle_stats.asset_count);
     return .{ .path = options.output_path, .artifact_name = std.fs.path.basename(options.output_path), .target = options.target, .asset_count = bundle_stats.asset_count, .web_engine = options.web_engine };
@@ -632,6 +636,52 @@ fn copyMacosCefRuntime(allocator: std.mem.Allocator, io: std.Io, app_dir: std.Io
     };
 }
 
+fn copyDesktopCefRuntime(allocator: std.mem.Allocator, io: std.Io, package_dir: std.Io.Dir, target: PackageTarget, cef_dir: []const u8) !void {
+    switch (target) {
+        .linux, .windows => {},
+        else => return error.UnsupportedWebEngine,
+    }
+    try package_dir.createDirPath(io, "bin");
+    try package_dir.createDirPath(io, "resources/cef");
+
+    const release_src = try std.fs.path.join(allocator, &.{ cef_dir, "Release" });
+    defer allocator.free(release_src);
+    try copyTree(allocator, io, release_src, package_dir, "bin");
+
+    const resources_src = try std.fs.path.join(allocator, &.{ cef_dir, "Resources" });
+    defer allocator.free(resources_src);
+    copyTree(allocator, io, resources_src, package_dir, "resources/cef") catch |err| switch (err) {
+        error.FileNotFound => {},
+        else => return err,
+    };
+
+    const locales_src = try std.fs.path.join(allocator, &.{ cef_dir, "locales" });
+    defer allocator.free(locales_src);
+    copyTree(allocator, io, locales_src, package_dir, "bin/locales") catch |err| switch (err) {
+        error.FileNotFound => {},
+        else => return err,
+    };
+}
+
+fn cefPlatformForTarget(target: PackageTarget) ?cef.Platform {
+    const current = cef.Platform.current() catch null;
+    return switch (target) {
+        .macos => if (current) |platform| switch (platform) {
+            .macosx64, .macosarm64 => platform,
+            else => .macosarm64,
+        } else .macosarm64,
+        .linux => if (current) |platform| switch (platform) {
+            .linux64, .linuxarm64 => platform,
+            else => .linux64,
+        } else .linux64,
+        .windows => if (current) |platform| switch (platform) {
+            .windows64, .windowsarm64 => platform,
+            else => .windows64,
+        } else .windows64,
+        .ios, .android => null,
+    };
+}
+
 fn copyTree(allocator: std.mem.Allocator, io: std.Io, source_path: []const u8, dest_dir: std.Io.Dir, dest_subpath: []const u8) !void {
     var source_dir = try std.Io.Dir.cwd().openDir(io, source_path, .{ .iterate = true });
     defer source_dir.close(io);
@@ -787,18 +837,19 @@ test "plist template includes identity executable and version" {
     try std.testing.expect(std.mem.indexOf(u8, plist, "icon.icns") != null);
 }
 
-test "chromium packages are explicit about supported targets" {
+test "chromium desktop packages require a matching CEF layout" {
     const metadata: manifest_tool.Metadata = .{
         .id = "dev.demo",
         .name = "demo",
         .version = "0.1.0",
     };
 
-    try std.testing.expectError(error.UnsupportedWebEngine, createPackage(std.testing.allocator, std.testing.io, .{
+    try std.testing.expectError(error.MissingLayout, createPackage(std.testing.allocator, std.testing.io, .{
         .metadata = metadata,
         .target = .linux,
         .output_path = ".zig-cache/test-package-linux-chromium",
         .web_engine = .chromium,
+        .cef_dir = ".zig-cache/missing-linux-cef",
     }));
 }
 

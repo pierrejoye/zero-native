@@ -6,6 +6,9 @@ pub const default_prepared_download_url = "https://github.com/vercel-labs/zero-n
 pub const default_official_download_url = "https://cef-builds.spotifycdn.com";
 pub const default_download_url = default_prepared_download_url;
 pub const default_macos_dir = "third_party/cef/macos";
+pub const default_linux_dir = "third_party/cef/linux";
+pub const default_windows_dir = "third_party/cef/windows";
+pub const default_dir = "";
 pub const default_release_output_dir = "zig-out/cef";
 
 pub const Error = error{
@@ -32,6 +35,18 @@ pub const macos_required_entries = [_]RequiredEntry{
     .{ .path = "libcef_dll_wrapper/libcef_dll_wrapper.a", .kind = .file },
 };
 
+pub const linux_required_entries = [_]RequiredEntry{
+    .{ .path = "include/cef_app.h", .kind = .file },
+    .{ .path = "Release/libcef.so", .kind = .file },
+    .{ .path = "libcef_dll_wrapper/libcef_dll_wrapper.a", .kind = .file },
+};
+
+pub const windows_required_entries = [_]RequiredEntry{
+    .{ .path = "include/cef_app.h", .kind = .file },
+    .{ .path = "Release/libcef.dll", .kind = .file },
+    .{ .path = "libcef_dll_wrapper/libcef_dll_wrapper.lib", .kind = .file },
+};
+
 pub const LayoutReport = struct {
     ok: bool,
     missing_path: ?[]const u8 = null,
@@ -40,18 +55,57 @@ pub const LayoutReport = struct {
 pub const Platform = enum {
     macosx64,
     macosarm64,
+    linux64,
+    linuxarm64,
+    windows64,
+    windowsarm64,
 
     pub fn current() Error!Platform {
-        if (builtin.target.os.tag != .macos) return error.UnsupportedPlatform;
-        return switch (builtin.target.cpu.arch) {
-            .x86_64 => .macosx64,
-            .aarch64 => .macosarm64,
+        return switch (builtin.target.os.tag) {
+            .macos => switch (builtin.target.cpu.arch) {
+                .x86_64 => .macosx64,
+                .aarch64 => .macosarm64,
+                else => error.UnsupportedPlatform,
+            },
+            .linux => switch (builtin.target.cpu.arch) {
+                .x86_64 => .linux64,
+                .aarch64 => .linuxarm64,
+                else => error.UnsupportedPlatform,
+            },
+            .windows => switch (builtin.target.cpu.arch) {
+                .x86_64 => .windows64,
+                .aarch64 => .windowsarm64,
+                else => error.UnsupportedPlatform,
+            },
             else => error.UnsupportedPlatform,
         };
     }
 
     pub fn name(self: Platform) []const u8 {
         return @tagName(self);
+    }
+
+    pub fn defaultDir(self: Platform) []const u8 {
+        return switch (self) {
+            .macosx64, .macosarm64 => default_macos_dir,
+            .linux64, .linuxarm64 => default_linux_dir,
+            .windows64, .windowsarm64 => default_windows_dir,
+        };
+    }
+
+    pub fn requiredEntries(self: Platform) []const RequiredEntry {
+        return switch (self) {
+            .macosx64, .macosarm64 => &macos_required_entries,
+            .linux64, .linuxarm64 => &linux_required_entries,
+            .windows64, .windowsarm64 => &windows_required_entries,
+        };
+    }
+
+    pub fn wrapperLibraryName(self: Platform) []const u8 {
+        return switch (self) {
+            .windows64, .windowsarm64 => "libcef_dll_wrapper.lib",
+            else => "libcef_dll_wrapper.a",
+        };
     }
 };
 
@@ -67,7 +121,7 @@ pub const Source = enum {
 };
 
 pub const InstallOptions = struct {
-    dir: []const u8 = default_macos_dir,
+    dir: []const u8 = default_dir,
     version: []const u8 = default_version,
     source: Source = .prepared,
     download_url: ?[]const u8 = null,
@@ -76,7 +130,7 @@ pub const InstallOptions = struct {
 };
 
 pub const PrepareOptions = struct {
-    dir: []const u8 = default_macos_dir,
+    dir: []const u8 = default_dir,
     output_dir: []const u8 = default_release_output_dir,
     version: []const u8 = default_version,
 };
@@ -172,6 +226,10 @@ pub fn archiveUrl(allocator: std.mem.Allocator, base_url: []const u8, version: [
 
 pub fn cacheDir(allocator: std.mem.Allocator, env_map: *std.process.Environ.Map) ![]const u8 {
     if (env_map.get("XDG_CACHE_HOME")) |root| return std.fs.path.join(allocator, &.{ root, "zero-native", "cef" });
+    if (builtin.target.os.tag == .windows) {
+        if (env_map.get("LOCALAPPDATA")) |root| return std.fs.path.join(allocator, &.{ root, "zero-native", "cef" });
+        if (env_map.get("USERPROFILE")) |home| return std.fs.path.join(allocator, &.{ home, "AppData", "Local", "zero-native", "cef" });
+    }
     if (env_map.get("HOME")) |home| {
         if (builtin.target.os.tag == .macos) return std.fs.path.join(allocator, &.{ home, "Library", "Caches", "zero-native", "cef" });
         return std.fs.path.join(allocator, &.{ home, ".cache", "zero-native", "cef" });
@@ -180,7 +238,12 @@ pub fn cacheDir(allocator: std.mem.Allocator, env_map: *std.process.Environ.Map)
 }
 
 pub fn verifyLayout(io: std.Io, dir: []const u8) LayoutReport {
-    for (macos_required_entries) |entry| {
+    const platform = Platform.current() catch .macosarm64;
+    return verifyLayoutFor(io, platform, dir);
+}
+
+pub fn verifyLayoutFor(io: std.Io, platform: Platform, dir: []const u8) LayoutReport {
+    for (platform.requiredEntries()) |entry| {
         var path_buffer: [512]u8 = undefined;
         var fba = std.heap.FixedBufferAllocator.init(&path_buffer);
         const path = std.fs.path.join(fba.allocator(), &.{ dir, entry.path }) catch return .{ .ok = false, .missing_path = entry.path };
@@ -195,6 +258,11 @@ pub fn verifyLayout(io: std.Io, dir: []const u8) LayoutReport {
 
 pub fn ensureLayout(io: std.Io, dir: []const u8) Error!void {
     const report = verifyLayout(io, dir);
+    if (!report.ok) return error.MissingLayout;
+}
+
+pub fn ensureLayoutFor(io: std.Io, platform: Platform, dir: []const u8) Error!void {
+    const report = verifyLayoutFor(io, platform, dir);
     if (!report.ok) return error.MissingLayout;
 }
 
@@ -216,12 +284,15 @@ pub fn run(allocator: std.mem.Allocator, io: std.Io, env_map: *std.process.Envir
         }
     } else if (std.mem.eql(u8, command, "path")) {
         const options = try parseOptions(args[1..]);
-        std.debug.print("{s}\n", .{options.dir});
+        const platform = try Platform.current();
+        std.debug.print("{s}\n", .{resolveDir(options.dir, platform)});
     } else if (std.mem.eql(u8, command, "doctor")) {
         const options = try parseOptions(args[1..]);
-        const report = verifyLayout(io, options.dir);
+        const platform = try Platform.current();
+        const dir = resolveDir(options.dir, platform);
+        const report = verifyLayoutFor(io, platform, dir);
         var message_buffer: [512]u8 = undefined;
-        std.debug.print("{s}\n", .{missingMessage(&message_buffer, options.dir, report)});
+        std.debug.print("{s}\n", .{missingMessage(&message_buffer, dir, report)});
         if (!report.ok) return error.MissingLayout;
     } else if (std.mem.eql(u8, command, "prepare-release")) {
         const options = try parsePrepareOptions(args[1..]);
@@ -235,15 +306,21 @@ pub fn run(allocator: std.mem.Allocator, io: std.Io, env_map: *std.process.Envir
 
 pub fn install(allocator: std.mem.Allocator, io: std.Io, env_map: *std.process.Environ.Map, options: InstallOptions) !InstallResult {
     const platform = try Platform.current();
-    const existing = verifyLayout(io, options.dir);
+    var resolved_options = options;
+    resolved_options.dir = resolveDir(options.dir, platform);
+    const existing = verifyLayoutFor(io, platform, resolved_options.dir);
     if (existing.ok and !options.force) {
-        return .{ .dir = options.dir, .archive_path = "", .platform = platform, .installed = false };
+        return .{ .dir = resolved_options.dir, .archive_path = "", .platform = platform, .installed = false };
     }
 
     return switch (options.source) {
-        .prepared => installPrepared(allocator, io, env_map, options, platform, existing),
-        .official => installOfficial(allocator, io, env_map, options, platform, existing),
+        .prepared => installPrepared(allocator, io, env_map, resolved_options, platform, existing),
+        .official => installOfficial(allocator, io, env_map, resolved_options, platform, existing),
     };
+}
+
+fn resolveDir(dir: []const u8, platform: Platform) []const u8 {
+    return if (dir.len == 0) platform.defaultDir() else dir;
 }
 
 fn installPrepared(allocator: std.mem.Allocator, io: std.Io, env_map: *std.process.Environ.Map, options: InstallOptions, platform: Platform, existing: LayoutReport) !InstallResult {
@@ -283,7 +360,7 @@ fn installPrepared(allocator: std.mem.Allocator, io: std.Io, env_map: *std.proce
     try std.Io.Dir.cwd().createDirPath(io, layout_dir);
     try runCommand(io, &.{ "tar", "-xzf", archive_path, "-C", layout_dir });
 
-    try ensureLayout(io, layout_dir);
+    try ensureLayoutFor(io, platform, layout_dir);
 
     if (pathExists(io, options.dir)) {
         if (!options.force and !existing.ok) {
@@ -295,7 +372,7 @@ fn installPrepared(allocator: std.mem.Allocator, io: std.Io, env_map: *std.proce
         try std.Io.Dir.cwd().createDirPath(io, parent);
     }
     try runCommand(io, &.{ "mv", layout_dir, options.dir });
-    try ensureLayout(io, options.dir);
+    try ensureLayoutFor(io, platform, options.dir);
 
     return .{ .dir = options.dir, .archive_path = archive_path, .platform = platform, .installed = true };
 }
@@ -346,8 +423,8 @@ fn installOfficial(allocator: std.mem.Allocator, io: std.Io, env_map: *std.proce
         try std.Io.Dir.cwd().createDirPath(io, parent);
     }
     try runCommand(io, &.{ "mv", extracted_root, options.dir });
-    try ensureWrapperArchive(allocator, io, options.dir);
-    try ensureLayout(io, options.dir);
+    try ensureWrapperArchive(allocator, io, platform, options.dir);
+    try ensureLayoutFor(io, platform, options.dir);
 
     return .{ .dir = options.dir, .archive_path = archive_path, .platform = platform, .installed = true };
 }
@@ -368,7 +445,8 @@ fn verifyArchiveChecksum(allocator: std.mem.Allocator, io: std.Io, cache_path: [
 
 pub fn prepareRelease(allocator: std.mem.Allocator, io: std.Io, options: PrepareOptions) ![]const u8 {
     const platform = try Platform.current();
-    try ensureLayout(io, options.dir);
+    const dir = resolveDir(options.dir, platform);
+    try ensureLayoutFor(io, platform, dir);
     try std.Io.Dir.cwd().createDirPath(io, options.output_dir);
 
     var archive_name_buffer: [256]u8 = undefined;
@@ -376,7 +454,7 @@ pub fn prepareRelease(allocator: std.mem.Allocator, io: std.Io, options: Prepare
     const archive_path = try std.fs.path.join(allocator, &.{ options.output_dir, name });
     errdefer allocator.free(archive_path);
 
-    const quoted_dir = try shellQuote(allocator, options.dir);
+    const quoted_dir = try shellQuote(allocator, dir);
     defer allocator.free(quoted_dir);
     const quoted_output = try shellQuote(allocator, options.output_dir);
     defer allocator.free(quoted_output);
@@ -384,7 +462,7 @@ pub fn prepareRelease(allocator: std.mem.Allocator, io: std.Io, options: Prepare
     defer allocator.free(quoted_name);
     const command = try std.fmt.allocPrint(
         allocator,
-        "output_dir=$(cd {s} && pwd) && cd {s} && tar -czf \"$output_dir\"/{s} include Release libcef_dll_wrapper $(test -d Resources && echo Resources)",
+        "output_dir=$(cd {s} && pwd) && cd {s} && tar -czf \"$output_dir\"/{s} include Release libcef_dll_wrapper $(test -d Resources && echo Resources) $(test -d locales && echo locales)",
         .{ quoted_output, quoted_dir, quoted_name },
     );
     defer allocator.free(command);
@@ -401,8 +479,9 @@ pub fn prepareRelease(allocator: std.mem.Allocator, io: std.Io, options: Prepare
     return archive_path;
 }
 
-fn ensureWrapperArchive(allocator: std.mem.Allocator, io: std.Io, dir: []const u8) !void {
-    const wrapper_path = try std.fs.path.join(allocator, &.{ dir, "libcef_dll_wrapper", "libcef_dll_wrapper.a" });
+fn ensureWrapperArchive(allocator: std.mem.Allocator, io: std.Io, platform: Platform, dir: []const u8) !void {
+    const wrapper_name = platform.wrapperLibraryName();
+    const wrapper_path = try std.fs.path.join(allocator, &.{ dir, "libcef_dll_wrapper", wrapper_name });
     defer allocator.free(wrapper_path);
     if (pathExists(io, wrapper_path)) return;
 
@@ -417,7 +496,7 @@ fn ensureWrapperArchive(allocator: std.mem.Allocator, io: std.Io, dir: []const u
     try runCommand(io, &.{ "cmake", "-S", dir, "-B", build_dir });
     try runCommand(io, &.{ "cmake", "--build", build_dir, "--target", "libcef_dll_wrapper", "--config", "Release" });
 
-    const built = try findFileNamed(allocator, io, build_dir, "libcef_dll_wrapper.a");
+    const built = try findFileNamed(allocator, io, build_dir, wrapper_name);
     defer allocator.free(built);
     try std.Io.Dir.copyFile(std.Io.Dir.cwd(), built, std.Io.Dir.cwd(), wrapper_path, io, .{ .make_path = true, .replace = true });
 }
@@ -507,6 +586,8 @@ test "archive names follow the CEF build convention" {
     try std.testing.expectEqualStrings("zero-native-cef-1.2.3+gabc+chromium-4.5.6-macosarm64.tar.gz", try preparedArchiveName(&buffer, "1.2.3+gabc+chromium-4.5.6", .macosarm64));
     try std.testing.expectEqualStrings("cef_binary_1.2.3+gabc+chromium-4.5.6_macosarm64.tar.bz2", try archiveName(&buffer, "1.2.3+gabc+chromium-4.5.6", .macosarm64));
     try std.testing.expectEqualStrings("cef_binary_1.2.3+gabc+chromium-4.5.6_macosx64.tar.bz2", try archiveName(&buffer, "1.2.3+gabc+chromium-4.5.6", .macosx64));
+    try std.testing.expectEqualStrings("cef_binary_1.2.3+gabc+chromium-4.5.6_linux64.tar.bz2", try archiveName(&buffer, "1.2.3+gabc+chromium-4.5.6", .linux64));
+    try std.testing.expectEqualStrings("cef_binary_1.2.3+gabc+chromium-4.5.6_windows64.tar.bz2", try archiveName(&buffer, "1.2.3+gabc+chromium-4.5.6", .windows64));
 }
 
 test "archive urls trim trailing slash" {
@@ -542,7 +623,7 @@ test "layout verifier reports first missing entry" {
     try std.testing.expectEqualStrings("include/cef_app.h", report.missing_path.?);
 }
 
-test "layout verifier accepts complete fixture" {
+test "layout verifier accepts complete macOS fixture" {
     const root = ".zig-cache/test-cef-layout";
     var cwd = std.Io.Dir.cwd();
     try cwd.createDirPath(std.testing.io, root ++ "/include");
@@ -551,6 +632,34 @@ test "layout verifier accepts complete fixture" {
     try cwd.writeFile(std.testing.io, .{ .sub_path = root ++ "/include/cef_app.h", .data = "" });
     try cwd.writeFile(std.testing.io, .{ .sub_path = root ++ "/libcef_dll_wrapper/libcef_dll_wrapper.a", .data = "" });
 
-    const report = verifyLayout(std.testing.io, root);
+    const report = verifyLayoutFor(std.testing.io, .macosarm64, root);
+    try std.testing.expect(report.ok);
+}
+
+test "layout verifier accepts complete linux fixture" {
+    const root = ".zig-cache/test-cef-layout-linux";
+    var cwd = std.Io.Dir.cwd();
+    try cwd.createDirPath(std.testing.io, root ++ "/include");
+    try cwd.createDirPath(std.testing.io, root ++ "/Release");
+    try cwd.createDirPath(std.testing.io, root ++ "/libcef_dll_wrapper");
+    try cwd.writeFile(std.testing.io, .{ .sub_path = root ++ "/include/cef_app.h", .data = "" });
+    try cwd.writeFile(std.testing.io, .{ .sub_path = root ++ "/Release/libcef.so", .data = "" });
+    try cwd.writeFile(std.testing.io, .{ .sub_path = root ++ "/libcef_dll_wrapper/libcef_dll_wrapper.a", .data = "" });
+
+    const report = verifyLayoutFor(std.testing.io, .linux64, root);
+    try std.testing.expect(report.ok);
+}
+
+test "layout verifier accepts complete windows fixture" {
+    const root = ".zig-cache/test-cef-layout-windows";
+    var cwd = std.Io.Dir.cwd();
+    try cwd.createDirPath(std.testing.io, root ++ "/include");
+    try cwd.createDirPath(std.testing.io, root ++ "/Release");
+    try cwd.createDirPath(std.testing.io, root ++ "/libcef_dll_wrapper");
+    try cwd.writeFile(std.testing.io, .{ .sub_path = root ++ "/include/cef_app.h", .data = "" });
+    try cwd.writeFile(std.testing.io, .{ .sub_path = root ++ "/Release/libcef.dll", .data = "" });
+    try cwd.writeFile(std.testing.io, .{ .sub_path = root ++ "/libcef_dll_wrapper/libcef_dll_wrapper.lib", .data = "" });
+
+    const report = verifyLayoutFor(std.testing.io, .windows64, root);
     try std.testing.expect(report.ok);
 }
