@@ -2,6 +2,19 @@
 
 All notable changes to zero-native will be documented in this file.
 
+## 0.1.6
+
+<!-- release:start -->
+
+### Improvements
+
+- **Init next steps** - Print the follow-up commands after scaffolding so users can immediately run their new app.
+
+### Contributors
+
+- @ctate
+<!-- release:end -->
+
 ## 0.1.5
 
 <!-- release:start -->

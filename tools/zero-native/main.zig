@@ -2,7 +2,7 @@ const std = @import("std");
 const automation_cli = @import("automation.zig");
 const tooling = @import("tooling");
 
-const version = "0.1.5";
+const version = "0.1.6";
 
 pub fn main(init: std.process.Init) !void {
     const allocator = init.arena.allocator();
@@ -24,6 +24,7 @@ pub fn main(init: std.process.Init) !void {
         defer if (free_framework_path) allocator.free(framework_path);
         try tooling.templates.writeDefaultApp(allocator, init.io, destination, .{ .app_name = app_name, .framework_path = framework_path, .frontend = frontend });
         std.debug.print("created zero-native app at {s} (frontend: {s})\n", .{ destination, frontend_str });
+        printInitNextSteps(destination);
     } else if (std.mem.eql(u8, command, "doctor")) {
         try tooling.doctor.run(allocator, init.io, init.environ_map, args[2..]);
     } else if (std.mem.eql(u8, command, "cef")) {
@@ -159,6 +160,14 @@ fn usage() void {
 fn fail(message: []const u8) noreturn {
     std.debug.print("{s}\n", .{message});
     std.process.exit(1);
+}
+
+fn printInitNextSteps(destination: []const u8) void {
+    std.debug.print("\nNext steps:\n", .{});
+    if (!std.mem.eql(u8, destination, ".")) {
+        std.debug.print("  cd {s}\n", .{destination});
+    }
+    std.debug.print("  zig build run\n", .{});
 }
 
 fn initAppName(allocator: std.mem.Allocator, io: std.Io, destination: []const u8) !struct { []const u8, bool } {
