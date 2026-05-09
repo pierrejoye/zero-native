@@ -2,6 +2,19 @@
 
 All notable changes to zero-native will be documented in this file.
 
+## 0.1.9
+
+<!-- release:start -->
+
+### New Features
+
+- **Linux and Windows desktop support**: Add platform-aware CEF tooling, Linux and Windows desktop build paths, Windows native host plumbing, and cross-platform CEF runtime packaging/release coverage.
+
+### Contributors
+
+- @ctate
+<!-- release:end -->
+
 ## 0.1.8
 
 <!-- release:start -->
