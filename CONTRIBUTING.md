@@ -107,3 +107,13 @@ zero-native automate bridge '{"id":"ping","command":"native.ping","payload":null
 ```
 
 Automation writes artifacts under `.zig-cache/zero-native-automation`.
+
+
+## Making a Pull Request
+Thank you for your contribution! Please follow these steps to ensure a smooth review process:
+1. Fork the repository and create a new branch for your feature or bug fix.
+2. Make your changes and commit them with clear, descriptive messages.
+3. Push your branch to your forked repository.
+4. Open a pull request against the main repository's `main` branch.
+
+Please ensure to sign your commits. If you don't know what that means, you can read about it in the [Git documentation](https://git-scm.com/book/en/v2/Git-Tools-Signing-Your-Work).
