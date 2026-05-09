@@ -1,6 +1,6 @@
 {
   "name": "zero-native",
-  "version": "0.1.6",
+  "version": "0.1.7",
   "description": "Zig desktop app shell with WebView — CLI tools",
   "type": "module",
   "bin": {

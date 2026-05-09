@@ -37,7 +37,36 @@ const GITHUB_REPO = 'vercel-labs/zero-native';
 const DOWNLOAD_URL = `https://github.com/${GITHUB_REPO}/releases/download/v${version}/${binaryName}`;
 const CHECKSUMS_URL = `https://github.com/${GITHUB_REPO}/releases/download/v${version}/CHECKSUMS.txt`;
 
-async function downloadFile(url, dest) {
+function formatBytes(bytes) {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
+}
+
+function createProgressReporter() {
+  let lastBucket = -1;
+  let lastMegabytes = -1;
+
+  return ({ downloaded, total, done = false }) => {
+    if (total > 0) {
+      const percent = Math.min(100, Math.floor((downloaded / total) * 100));
+      const bucket = done ? 100 : Math.floor(percent / 10) * 10;
+      if (bucket !== lastBucket) {
+        lastBucket = bucket;
+        console.log(`  ${bucket}% (${formatBytes(downloaded)} / ${formatBytes(total)})`);
+      }
+      return;
+    }
+
+    const megabytes = Math.floor(downloaded / 1024 / 1024);
+    if (done || megabytes > lastMegabytes) {
+      lastMegabytes = megabytes;
+      console.log(`  downloaded ${formatBytes(downloaded)}`);
+    }
+  };
+}
+
+async function downloadFile(url, dest, onProgress = () => {}) {
   return new Promise((resolve, reject) => {
     const file = createWriteStream(dest);
 
@@ -69,9 +98,16 @@ async function downloadFile(url, dest) {
           return;
         }
 
+        const total = Number.parseInt(response.headers['content-length'] || '0', 10);
+        let downloaded = 0;
+        response.on('data', (chunk) => {
+          downloaded += chunk.length;
+          onProgress({ downloaded, total });
+        });
         response.pipe(file);
         file.on('finish', () => {
           file.close();
+          onProgress({ downloaded, total, done: true });
           resolve();
         });
       }).on('error', cleanup);
@@ -154,8 +190,9 @@ async function main() {
   console.log(`URL: ${DOWNLOAD_URL}`);
 
   try {
-    await downloadFile(DOWNLOAD_URL, binaryPath);
+    await downloadFile(DOWNLOAD_URL, binaryPath, createProgressReporter());
 
+    console.log('Verifying checksum...');
     const checksumValid = await verifyChecksum(binaryPath, binaryName);
     if (!checksumValid) {
       unlinkSync(binaryPath);

@@ -2,6 +2,19 @@
 
 All notable changes to zero-native will be documented in this file.
 
+## 0.1.7
+
+<!-- release:start -->
+
+### Improvements
+
+- **Install progress** - Show native binary download progress and checksum status during the npm postinstall step.
+
+### Contributors
+
+- @ctate
+<!-- release:end -->
+
 ## 0.1.6
 
 <!-- release:start -->
