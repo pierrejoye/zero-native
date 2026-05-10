@@ -389,6 +389,21 @@ static void on_focus(GtkWindow *window, GParamSpec *pspec, gpointer data) {
     zero_native_emit_window_frame(win->host, win, 1);
 }
 
+static gboolean on_key_pressed(GtkEventControllerKey *controller, guint keyval, guint keycode, GdkModifierType state, gpointer data) {
+    (void)controller;
+    (void)keycode;
+    zero_native_gtk_window_t *win = data;
+    if (!win || !win->web_view) return FALSE;
+
+    if ((state & (GDK_CONTROL_MASK | GDK_ALT_MASK)) != (GDK_CONTROL_MASK | GDK_ALT_MASK)) return FALSE;
+    if (keyval != GDK_KEY_i && keyval != GDK_KEY_I) return FALSE;
+
+    WebKitWebInspector *inspector = webkit_web_view_get_inspector(win->web_view);
+    if (!inspector) return FALSE;
+    webkit_web_inspector_show(inspector);
+    return TRUE;
+}
+
 static gboolean on_close_request(GtkWindow *window, gpointer data) {
     (void)window;
     zero_native_gtk_window_t *win = data;
@@ -548,6 +563,11 @@ static zero_native_gtk_window_t *zero_native_create_window_internal(zero_native_
             "user-content-manager", win->content_manager,
             NULL));
     win->web_view = wv;
+    
+    // Enable developer extras (WebInspector) for debugging
+    WebKitSettings *settings = webkit_web_view_get_settings(wv);
+    webkit_settings_set_enable_developer_extras(settings, TRUE);
+    
     if (!host->scheme_registered) {
         webkit_web_context_register_uri_scheme(webkit_web_view_get_context(wv), "zero", zero_native_asset_scheme_request, host, NULL);
         host->scheme_registered = 1;
@@ -555,6 +575,10 @@ static zero_native_gtk_window_t *zero_native_create_window_internal(zero_native_
     zero_native_setup_bridge(win);
 
     gtk_window_set_child(win->gtk_window, GTK_WIDGET(wv));
+
+    GtkEventController *key_controller = gtk_event_controller_key_new();
+    g_signal_connect(key_controller, "key-pressed", G_CALLBACK(on_key_pressed), win);
+    gtk_widget_add_controller(GTK_WIDGET(win->gtk_window), key_controller);
 
     g_signal_connect(win->gtk_window, "notify::default-width", G_CALLBACK(on_resize), win);
     g_signal_connect(win->gtk_window, "notify::default-height", G_CALLBACK(on_resize), win);
